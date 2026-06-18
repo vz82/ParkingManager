@@ -70,13 +70,14 @@ function payForSession(sessionId, paymentChannel, now):
     rainyMinutes = weatherExposureMinutes(sessionId, rain=true)
     if parkedMinutes <= 0:
         amount = baseAmount
-    else if session.spaceType == "UNCOVERED" and rainyMinutes / parkedMinutes >= RAINY_DISCOUNT_THRESHOLD:
-        amount = baseAmount * 0.5
     else:
-        amount = baseAmount
+        if session.spaceType == "UNCOVERED" and rainyMinutes / parkedMinutes >= RAINY_DISCOUNT_THRESHOLD:
+            amount = baseAmount * 0.5
+        else:
+            amount = baseAmount
 
     recordPayment(sessionId, amount, paymentChannel, paidAt=now)
-    session.paidUntil = now + 10 minutes
+    session.paidUntil = addMinutes(now, 10)
     session.status = "PAID_WAITING_EXIT"
     save(session)
 
