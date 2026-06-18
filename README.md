@@ -67,8 +67,8 @@ function payForSession(sessionId, paymentChannel, now):
     baseAmount = priceEngine.calculateBase(session.spaceType, parkedMinutes)
 
     rainyMinutes = weatherExposureMinutes(sessionId, rain=true)
-    safeParkedMinutes = max(parkedMinutes, 1)
-    if session.spaceType == "UNCOVERED" and rainyMinutes / safeParkedMinutes >= 0.33:
+    parkedMinutesOrOne = max(parkedMinutes, 1)
+    if session.spaceType == "UNCOVERED" and rainyMinutes / parkedMinutesOrOne >= 0.33:
         amount = baseAmount * 0.5
     else:
         amount = baseAmount
@@ -97,5 +97,5 @@ Rainy-threshold note: `rainyMinutes / max(parkedMinutes, 1)` uses parked minutes
 ## Priority and scope notes
 - **Never compromise**: charging logic and payment auditability.
 - **Very important**: accurate total free-space count.
-- **Secondary but included**: per-floor free-space count and rainy action analytics.
+- **Secondary but included**: per-floor free-space count and rainy promotion analytics.
 - **Constraint**: uncovered spaces must remain <= 15% of total garage capacity.
