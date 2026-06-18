@@ -96,7 +96,7 @@ function validateExit(sessionId, now):
     denyExit("Additional payment required: " + additionalAmount)
 ```
 
-Rainy-threshold note: discount eligibility is computed only when `parkedMinutes > 0`; for `parkedMinutes <= 0` the rainy ratio remains `0` and no rainy discount is applied.
+Rainy-threshold note: rainy ratio is guarded by `parkedMinutes > 0`, and the discount condition also checks `parkedMinutes > 0`; for `parkedMinutes <= 0` the rainy ratio remains `0` and no rainy discount is applied.
 
 ## Priority and scope notes
 - **Never compromise**: charging logic and payment auditability.
