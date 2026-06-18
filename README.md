@@ -7,14 +7,14 @@
 - **Parking inventory**: total free spaces (high priority) and free spaces per floor (preferred), split by covered/uncovered.
 - **Billing engine (most critical)**: time-based charging, payment-machine flow, contract billing, 10-minute exit grace period.
 - **Weather/rainy promotion**: uncovered spaces discounted to 50% of covered price during rain, applied when at least 33% of parked time is rainy.
-- **Reporting/analytics**: monthly business insight (revenue, occupancy, promotion impact, profitability).
+- **Reporting/analytics**: monthly business insights (revenue, occupancy, promotion impact, profitability).
 
 ### Key processes
 1. **Vehicle entry**: identify user (ticket/card/contract), assign eligible space, start parking session.
 2. **Parking session tracking**: occupancy and weather exposure timelines are recorded.
 3. **Payment before exit**: user pays only at floor payment machine or via pre-signed contract rules.
 4. **Exit validation**: gate allows exit only if paid and within 10 minutes; otherwise additional charge is required.
-5. **Monthly reporting**: aggregate revenue, occupancy, rainy-discount usage/profitability.
+5. **Monthly reporting**: aggregate revenue, occupancy, rainy promotion usage/profitability.
 
 ### Potential problem areas
 - Payment correctness (highest risk if wrong).
