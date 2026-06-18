@@ -19,7 +19,7 @@
 ### Potential problem areas
 - Payment correctness (highest risk if wrong).
 - Race conditions between payment timestamp and gate exit timestamp.
-- Weather attribution accuracy for the defined rule: at least 33% of parking time in rain.
+- Weather attribution accuracy for the defined rule: at least 33% of parking time during rain.
 - Incorrect inventory counts under concurrent entry/exit.
 - Fraud/identity misuse without strong authentication.
 
@@ -62,13 +62,14 @@ erDiagram
 function payForSession(sessionId, paymentChannel, now):
     session = loadSession(sessionId)
     assert session.status == "ACTIVE"
+    RAINY_DISCOUNT_THRESHOLD = 0.33
 
     parkedMinutes = minutesBetween(session.entryTime, now)
     baseAmount = priceEngine.calculateBase(session.spaceType, parkedMinutes)
 
     rainyMinutes = weatherExposureMinutes(sessionId, rain=true)
     parkedMinutesOrOne = max(parkedMinutes, 1)
-    if session.spaceType == "UNCOVERED" and rainyMinutes / parkedMinutesOrOne >= 0.33:
+    if session.spaceType == "UNCOVERED" and rainyMinutes / parkedMinutesOrOne >= RAINY_DISCOUNT_THRESHOLD:
         amount = baseAmount * 0.5
     else:
         amount = baseAmount
@@ -92,7 +93,7 @@ function validateExit(sessionId, now):
     denyExit("Additional payment required: " + additionalAmount)
 ```
 
-Rainy-threshold note: `rainyMinutes / max(parkedMinutes, 1)` uses parked minutes up to and including the minute containing the payment timestamp, so immediate payment events remain safe.
+Rainy-threshold note: `rainyMinutes / max(parkedMinutes, 1)` uses exact elapsed time from entry until the payment timestamp (fractional minutes allowed), with a minimum denominator of 1 for safety.
 
 ## Priority and scope notes
 - **Never compromise**: charging logic and payment auditability.
