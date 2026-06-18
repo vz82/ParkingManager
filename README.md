@@ -103,3 +103,47 @@ Rainy-threshold note: rainy ratio is guarded by `parkedMinutes > 0`, and the dis
 - **Very important**: accurate total free-space count.
 - **Secondary but included**: per-floor free-space count and rainy promotion analytics.
 - **Constraint**: uncovered spaces must remain <= 15% of total garage capacity.
+
+## Generated .NET application
+
+The repository now includes a runnable ASP.NET Core Web API implementation under `src/ParkingManager.Api`.
+
+### What is implemented
+- Vehicle entry with space assignment (`covered` preferred or fallback to any free space).
+- Real-time inventory totals and per-floor free-space counts (covered/uncovered split).
+- Billing with hourly pricing, payment recording, and 10-minute grace period for exit.
+- Rainy promotion for uncovered spaces: 50% discount when rainy exposure is at least 33% of the parking time at payment moment.
+- Exit validation with additional-charge calculation after grace period expiration.
+- Monthly report endpoint with revenue, occupancy ratio, and promotion impact.
+- Constraint enforcement: uncovered spaces are capped at 15% of lot capacity.
+
+### Run
+
+From repository root:
+
+```bash
+dotnet run --project src/ParkingManager.Api/ParkingManager.Api.csproj
+```
+
+Swagger UI will be available at:
+
+```text
+http://localhost:5000/swagger
+```
+
+### Main endpoints
+- `GET /api/inventory`
+- `POST /api/sessions/entry`
+- `GET /api/sessions/{sessionId}`
+- `POST /api/sessions/{sessionId}/payment`
+- `POST /api/sessions/{sessionId}/exit`
+- `POST /api/weather/interval`
+- `GET /api/reports/monthly?year=2026&month=6`
+
+### Sample flow
+
+1. Register a rainy interval.
+2. Create an entry session.
+3. Pay for the session.
+4. Validate exit.
+5. Review monthly report.
