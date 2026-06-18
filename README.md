@@ -67,7 +67,8 @@ function payForSession(sessionId, paymentChannel, now):
     baseAmount = priceEngine.calculateBase(session.spaceType, parkedMinutes)
 
     rainyMinutes = weatherExposureMinutes(sessionId, rain=true)
-    if session.spaceType == "UNCOVERED" and rainyMinutes / parkedMinutes >= 0.33:
+    ratioBaseMinutes = max(parkedMinutes, 1)
+    if session.spaceType == "UNCOVERED" and rainyMinutes / ratioBaseMinutes >= 0.33:
         amount = baseAmount * 0.5
     else:
         amount = baseAmount
@@ -90,6 +91,8 @@ function validateExit(sessionId, now):
     additionalAmount = recalculateWithExtraTime(session, now)
     denyExit("Additional payment required: " + additionalAmount)
 ```
+
+Rainy-threshold note: `rainyMinutes / ratioBaseMinutes` is calculated using completed parked minutes up to the payment timestamp (inclusive boundary), with `ratioBaseMinutes >= 1` to safely handle immediate payment events.
 
 ## Priority and scope notes
 - **Never compromise**: charging logic and payment auditability.
