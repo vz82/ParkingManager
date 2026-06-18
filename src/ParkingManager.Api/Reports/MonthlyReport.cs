@@ -6,6 +6,8 @@ public sealed class MonthlyReport
 
     public required int Month { get; init; }
 
+    public required decimal GrossRevenue { get; init; }
+
     public required decimal TotalRevenue { get; init; }
 
     public required int TotalPayments { get; init; }

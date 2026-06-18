@@ -51,6 +51,35 @@ public sealed class ParkingService
         }
     }
 
+    public object GetRecentSessions(int take = 12)
+    {
+        take = Math.Clamp(take, 1, 50);
+
+        lock (SyncRoot)
+        {
+            return _db.ParkingSessions.AsNoTracking()
+                .OrderByDescending(s => s.EntryTimeUtc)
+                .Take(take)
+                .Select(s => new
+                {
+                    SessionId = s.Id,
+                    s.VehiclePlate,
+                    s.UserId,
+                    s.IsContractUser,
+                    s.SpaceId,
+                    s.Floor,
+                    SpaceType = s.SpaceType.ToString(),
+                    s.EntryTimeUtc,
+                    s.ExitTimeUtc,
+                    s.PaidAtUtc,
+                    s.PaidUntilUtc,
+                    s.AmountPaid,
+                    Status = s.Status.ToString()
+                })
+                .ToArray();
+        }
+    }
+
     public object RegisterEntry(EntryRequest request)
     {
         var now = request.EntryTimeUtc?.ToUniversalTime() ?? DateTime.UtcNow;
@@ -268,11 +297,13 @@ public sealed class ParkingService
         {
             var monthStart = new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
             var monthEnd = monthStart.AddMonths(1);
+            var reportCutoffUtc = DateTime.UtcNow < monthEnd ? DateTime.UtcNow : monthEnd;
 
             var monthPayments = _db.PaymentRecords.AsNoTracking()
                 .Where(p => p.PaidAtUtc >= monthStart && p.PaidAtUtc < monthEnd)
                 .ToArray();
 
+            var grossRevenue = monthPayments.Sum(p => p.ChargedAmount + p.DiscountAmount);
             var totalRevenue = monthPayments.Sum(p => p.ChargedAmount);
             var discountedPayments = monthPayments.Count(p => p.DiscountAmount > 0m);
             var promotionDiscountGiven = monthPayments.Sum(p => p.DiscountAmount);
@@ -280,7 +311,7 @@ public sealed class ParkingService
             var spacesCount = _db.ParkingSpaces.Count();
             var sessions = _db.ParkingSessions.AsNoTracking().ToList();
             var capacityMinutes = spacesCount * (monthEnd - monthStart).TotalMinutes;
-            var occupiedMinutes = sessions.Sum(s => SessionOverlapMinutes(s, monthStart, monthEnd));
+            var occupiedMinutes = sessions.Sum(s => SessionOverlapMinutes(s, monthStart, monthEnd, reportCutoffUtc));
             var avgOccupancy = capacityMinutes <= 0
                 ? 0m
                 : decimal.Round((decimal)(occupiedMinutes / capacityMinutes), 4);
@@ -289,6 +320,7 @@ public sealed class ParkingService
             {
                 Year = year,
                 Month = month,
+                GrossRevenue = grossRevenue,
                 TotalRevenue = totalRevenue,
                 TotalPayments = monthPayments.Length,
                 DiscountedPayments = discountedPayments,
@@ -405,9 +437,9 @@ public sealed class ParkingService
         return (end - start).TotalMinutes;
     }
 
-    private static double SessionOverlapMinutes(ParkingSession session, DateTime monthStart, DateTime monthEnd)
+    private static double SessionOverlapMinutes(ParkingSession session, DateTime monthStart, DateTime monthEnd, DateTime reportCutoffUtc)
     {
-        var end = session.ExitTimeUtc ?? DateTime.UtcNow;
+        var end = session.ExitTimeUtc ?? reportCutoffUtc;
         return OverlapMinutes(session.EntryTimeUtc, end, monthStart, monthEnd);
     }
 }

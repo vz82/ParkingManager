@@ -100,9 +100,35 @@ public sealed class ParkingServiceTests
 
         MonthlyReport report = service.BuildMonthlyReport(now.Year, now.Month);
 
+        Assert.True(report.GrossRevenue >= report.TotalRevenue);
         Assert.True(report.TotalRevenue > 0m);
         Assert.True(report.TotalPayments >= 1);
         Assert.True(report.DiscountedPayments >= 1);
+    }
+
+    [Fact]
+    public void MonthlyReport_UsesReportingWindow_ForOpenSessions()
+    {
+        var service = CreateService();
+
+        var now = DateTime.UtcNow;
+        var previousMonthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(-1);
+        var entry = service.RegisterEntry(new EntryRequest
+        {
+            VehiclePlate = "TEST-REPORT-WINDOW",
+            PreferCoveredSpace = true,
+            EntryTimeUtc = previousMonthStart.AddHours(-2)
+        });
+
+        var report = service.BuildMonthlyReport(previousMonthStart.Year, previousMonthStart.Month);
+
+        var expectedOccupancyRatio = decimal.Round(1m / 60m, 4);
+
+        Assert.Equal(expectedOccupancyRatio, report.AverageOccupancyRatio);
+
+        var sessionId = ExtractGuid(entry, "SessionId");
+        var session = service.GetSession(sessionId);
+        Assert.NotNull(session);
     }
 
     private static ParkingService CreateService()

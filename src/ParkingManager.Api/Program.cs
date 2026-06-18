@@ -1,11 +1,14 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Components;
 using ParkingManager.Api.Contracts;
+using ParkingManager.Api.Components;
 using ParkingManager.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 
 var options = new ParkingManagerOptions();
 builder.Services.AddSingleton(options);
@@ -15,6 +18,10 @@ var connectionString = builder.Configuration.GetConnectionString("ParkingManager
 
 builder.Services.AddDbContext<ParkingDbContext>(db => db.UseNpgsql(connectionString));
 builder.Services.AddScoped<ParkingService>();
+builder.Services.AddScoped(sp => new HttpClient
+{
+    BaseAddress = new Uri(sp.GetRequiredService<NavigationManager>().BaseUri)
+});
 
 var app = builder.Build();
 
@@ -25,12 +32,28 @@ using (var scope = app.Services.CreateScope())
 
     db.Database.Migrate();
     ParkingSeeder.EnsureSeeded(db, seededOptions);
+    DemoDataSeeder.EnsureSeeded(db, seededOptions);
 }
 
+app.UseStaticFiles();
 app.UseSwagger();
 app.UseSwaggerUI();
 
+app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
+
 app.MapGet("/api/inventory", (ParkingService parkingService) => Results.Ok(parkingService.GetInventory()));
+
+app.MapGet("/api/sessions", (int? take, ParkingService parkingService) =>
+{
+    try
+    {
+        return Results.Ok(parkingService.GetRecentSessions(take ?? 12));
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { Error = ex.Message });
+    }
+});
 
 app.MapPost("/api/sessions/entry", (EntryRequest request, ParkingService parkingService) =>
 {

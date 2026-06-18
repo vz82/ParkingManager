@@ -1,0 +1,23 @@
+@if (Items.Count > 0)
+{
+    <section class="toast-stack" aria-live="polite" aria-atomic="true">
+        @foreach (var toast in Items)
+        {
+            <article class="toast @toast.Kind.ToString().ToLowerInvariant()">
+                <div>
+                    <strong>@toast.Title</strong>
+                    <p>@toast.Message</p>
+                </div>
+                <button type="button" class="toast-close" @onclick="() => OnDismiss.InvokeAsync(toast.Id)">Dismiss</button>
+            </article>
+        }
+    </section>
+}
+
+@code {
+    [Parameter]
+    public IReadOnlyCollection<ToastMessage> Items { get; set; } = Array.Empty<ToastMessage>();
+
+    [Parameter]
+    public EventCallback<Guid> OnDismiss { get; set; }
+}

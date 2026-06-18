@@ -1,0 +1,713 @@
+@page "/"
+@implements IDisposable
+@inject HttpClient Http
+
+<ToastHost Items="Toasts" OnDismiss="RemoveToast" />
+
+<section class="toolbar">
+    <button class="tab @(ActiveTab == "inventory" ? "is-active" : "")" @onclick="() => SetTab("inventory")">Inventory</button>
+    <button class="tab @(ActiveTab == "operations" ? "is-active" : "")" @onclick="() => SetTab("operations")">Operations</button>
+    <button class="tab @(ActiveTab == "reporting" ? "is-active" : "")" @onclick="() => SetTab("reporting")">Reporting</button>
+    <button class="tab @(ActiveTab == "sessions" ? "is-active" : "")" @onclick="() => SetTab("sessions")">Sessions</button>
+</section>
+
+<section class="dashboard-grid">
+    @if (ActiveTab == "inventory")
+    {
+    <article class="panel span-2" id="inventoryPanel">
+        <div class="panel-header">
+            <div>
+                <p class="eyebrow">Inventory</p>
+                <h2>Space availability</h2>
+            </div>
+            <button class="ghost-button" @onclick="() => RefreshAllAsync(true)">Refresh all</button>
+        </div>
+
+        <div class="metric-grid" id="inventoryCards">
+            <MetricCard Title="Total spaces" Value="@(Inventory?.TotalSpaces.ToString() ?? "-")" Description="Garage capacity" />
+            <MetricCard Title="Free spaces" Value="@(Inventory?.FreeSpaces.ToString() ?? "-")" Description="@InventoryCoverageSummary" />
+            <MetricCard Title="Covered free" Value="@(Inventory?.CoveredFree.ToString() ?? "-")" Description="Preferred spaces available" />
+            <MetricCard Title="Uncovered free" Value="@(Inventory?.UncoveredFree.ToString() ?? "-")" Description="Rain promotion eligible" />
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Floor</th>
+                        <th>Total</th>
+                        <th>Free</th>
+                        <th>Covered free</th>
+                        <th>Uncovered free</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (Inventory?.ByFloor is null || Inventory.ByFloor.Length == 0)
+                    {
+                        <tr><td colspan="5">No inventory available.</td></tr>
+                    }
+                    else
+                    {
+                        @foreach (var floor in Inventory.ByFloor)
+                        {
+                            <tr>
+                                <td>@floor.Floor</td>
+                                <td>@floor.Total</td>
+                                <td>@floor.Free</td>
+                                <td>@floor.CoveredFree</td>
+                                <td>@floor.UncoveredFree</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </article>
+    }
+
+    @if (ActiveTab == "operations")
+    {
+    <article class="panel" id="operationsPanel">
+        <div class="panel-header">
+            <div>
+                <p class="eyebrow">Access control</p>
+                <h2>Vehicle entry</h2>
+            </div>
+        </div>
+
+        <EditForm Model="EntryModel" OnValidSubmit="CreateEntryAsync" class="stack-form">
+            <DataAnnotationsValidator />
+            <label>Vehicle plate<InputText @bind-Value="EntryModel.VehiclePlate" /></label>
+            <label>User ID<InputText @bind-Value="EntryModel.UserId" /></label>
+            <label class="inline-check"><InputCheckbox @bind-Value="EntryModel.IsContractUser" /> Contract user</label>
+            <label class="inline-check"><InputCheckbox @bind-Value="EntryModel.PreferCoveredSpace" /> Prefer covered space</label>
+            <label>Entry time UTC<InputText @bind-Value="EntryModel.EntryTimeUtcText" /></label>
+            <button type="submit">Create session</button>
+        </EditForm>
+        <pre class="result-box">@EntryResult</pre>
+
+        <div class="divider"></div>
+
+        <div class="panel-header small-gap">
+            <div>
+                <p class="eyebrow">Billing</p>
+                <h2>Payment and exit</h2>
+            </div>
+        </div>
+
+        <EditForm Model="PaymentModel" OnValidSubmit="RegisterPaymentAsync" class="stack-form compact">
+            <label>Session ID<InputText @bind-Value="PaymentModel.SessionId" /></label>
+            <label>Payment channel<InputText @bind-Value="PaymentModel.PaymentChannel" /></label>
+            <label>Paid at UTC<InputText @bind-Value="PaymentModel.PaidAtUtcText" /></label>
+            <button type="submit">Register payment</button>
+        </EditForm>
+
+        <EditForm Model="ExitModel" OnValidSubmit="ValidateExitAsync" class="stack-form compact">
+            <label>Session ID<InputText @bind-Value="ExitModel.SessionId" /></label>
+            <button type="submit">Validate exit</button>
+        </EditForm>
+
+        <pre class="result-box">@PaymentResult</pre>
+    </article>
+    }
+
+    @if (ActiveTab == "reporting")
+    {
+    <article class="panel" id="reportingPanel">
+        <div class="panel-header">
+            <div>
+                <p class="eyebrow">Weather</p>
+                <h2>Rain interval</h2>
+            </div>
+        </div>
+
+        <EditForm Model="WeatherModel" OnValidSubmit="AddWeatherIntervalAsync" class="stack-form compact">
+            <label>Start UTC<InputText @bind-Value="WeatherModel.StartUtcText" /></label>
+            <label>End UTC<InputText @bind-Value="WeatherModel.EndUtcText" /></label>
+            <label class="inline-check"><InputCheckbox @bind-Value="WeatherModel.IsRainy" /> Rainy interval</label>
+            <button type="submit">Add interval</button>
+        </EditForm>
+
+        <pre class="result-box">@WeatherResult</pre>
+
+        <div class="divider"></div>
+
+        <div class="panel-header small-gap">
+            <div>
+                <p class="eyebrow">Monthly reporting</p>
+                <h2>Insights</h2>
+            </div>
+        </div>
+
+        <EditForm Model="ReportModel" OnValidSubmit="LoadReportAsync" class="stack-form compact">
+            <div class="row-fields">
+                <label>Year<InputNumber @bind-Value="ReportModel.Year" /></label>
+                <label>Month<InputNumber @bind-Value="ReportModel.Month" /></label>
+            </div>
+            <button type="submit">Load report</button>
+        </EditForm>
+
+        <div class="metric-grid report-grid">
+            <MetricCard Title="Gross revenue" Value="@ReportGrossRevenue" Description="Before discounts" />
+            <MetricCard Title="Net revenue" Value="@ReportNetRevenue" Description="Charged amounts" />
+            <MetricCard Title="Discounts" Value="@ReportDiscounts" Description="@ReportDiscountCount" />
+            <MetricCard Title="Occupancy" Value="@ReportOccupancy" Description="Average ratio" />
+        </div>
+
+        <pre class="result-box">@ReportResult</pre>
+    </article>
+    }
+
+    @if (ActiveTab == "sessions")
+    {
+    <article class="panel span-2" id="sessionsPanel">
+        <div class="panel-header">
+            <div>
+                <p class="eyebrow">Operations</p>
+                <h2>Session inspector</h2>
+            </div>
+            <EditForm Model="LookupModel" OnValidSubmit="LookupSessionAsync" class="inline-form">
+                <InputText @bind-Value="LookupModel.SessionId" placeholder="Lookup by session id" />
+                <button type="submit">Search</button>
+            </EditForm>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Session</th>
+                        <th>Plate</th>
+                        <th>Floor</th>
+                        <th>Space</th>
+                        <th>Status</th>
+                        <th>Paid</th>
+                        <th>Paid until</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (Sessions.Length == 0)
+                    {
+                        <tr><td colspan="7">No sessions yet.</td></tr>
+                    }
+                    else
+                    {
+                        @foreach (var session in Sessions)
+                        {
+                            <tr role="button" @onclick="() => SelectSessionAsync(session.SessionId)">
+                                <td>@ShortGuid(session.SessionId)</td>
+                                <td>@session.VehiclePlate</td>
+                                <td>@session.Floor</td>
+                                <td>@session.SpaceId (@session.SpaceType)</td>
+                                <td><span class="status-chip @(session.Status == "Closed" ? "danger" : "")">@session.Status</span></td>
+                                <td>@Money(session.AmountPaid)</td>
+                                <td>@FormatDate(session.PaidUntilUtc)</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <pre class="result-box">@SessionResult</pre>
+    </article>
+    }
+</section>
+
+@code {
+    private const string DateFormat = "yyyy-MM-ddTHH:mm";
+    private static readonly TimeSpan AutoRefreshInterval = TimeSpan.FromSeconds(30);
+
+    private string ActiveTab { get; set; } = "inventory";
+
+    private readonly List<ToastMessage> Toasts = new();
+
+    private CancellationTokenSource? RefreshCancellation;
+
+    private Task? RefreshLoopTask;
+
+    private InventoryResponse? Inventory { get; set; }
+
+    private SessionSummaryResponse[] Sessions { get; set; } = [];
+
+    private MonthlyReportResponse? Report { get; set; }
+
+    private EntryFormModel EntryModel { get; } = new();
+
+    private PaymentFormModel PaymentModel { get; } = new();
+
+    private ExitFormModel ExitModel { get; } = new();
+
+    private WeatherFormModel WeatherModel { get; } = new();
+
+    private ReportFormModel ReportModel { get; } = new();
+
+    private SessionLookupModel LookupModel { get; } = new();
+
+    private string EntryResult { get; set; } = "Ready.";
+
+    private string PaymentResult { get; set; } = "No payment yet.";
+
+    private string WeatherResult { get; set; } = "Waiting for weather interval.";
+
+    private string ReportResult { get; set; } = "Load a report to view the aggregate output.";
+
+    private string SessionResult { get; set; } = "Select a session or search by ID.";
+
+    private string InventoryCoverageSummary => Inventory is null
+        ? "-"
+        : $"{Inventory.CoveredFree} covered / {Inventory.UncoveredFree} uncovered";
+
+    private string ReportGrossRevenue => Report is null ? "-" : Money(Report.GrossRevenue);
+
+    private string ReportNetRevenue => Report is null ? "-" : Money(Report.TotalRevenue);
+
+    private string ReportDiscounts => Report is null ? "-" : Money(Report.PromotionDiscountGiven);
+
+    private string ReportDiscountCount => Report is null ? "-" : $"{Report.DiscountedPayments} discounted payments";
+
+    private string ReportOccupancy => Report is null ? "-" : $"{Report.AverageOccupancyRatio:P2}";
+
+    private string InventorySummary => Inventory is null ? "-" : $"{Inventory.FreeSpaces}/{Inventory.TotalSpaces}";
+
+    private string ActiveSessionSummary => Sessions.Count(s => !string.Equals(s.Status, "Closed", StringComparison.OrdinalIgnoreCase)).ToString();
+
+    private string MonthlyRevenueSummary => Report is null ? "-" : Money(Report.TotalRevenue);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var now = DateTime.UtcNow;
+        EntryModel.EntryTimeUtcText = now.ToString(DateFormat);
+        PaymentModel.PaidAtUtcText = now.ToString(DateFormat);
+        WeatherModel.StartUtcText = now.ToString(DateFormat);
+        WeatherModel.EndUtcText = now.AddHours(1).ToString(DateFormat);
+        ReportModel.Year = now.Year;
+        ReportModel.Month = now.Month;
+
+        await RefreshAllAsync();
+        RefreshCancellation = new CancellationTokenSource();
+        RefreshLoopTask = RunRefreshLoopAsync(RefreshCancellation.Token);
+    }
+
+    private async Task RefreshAllAsync(bool showToast = false)
+    {
+        Inventory = await Http.GetFromJsonAsync<InventoryResponse>("api/inventory");
+        Sessions = await Http.GetFromJsonAsync<SessionSummaryResponse[]>("api/sessions?take=20") ?? [];
+        Report = await Http.GetFromJsonAsync<MonthlyReportResponse>($"api/reports/monthly?year={ReportModel.Year}&month={ReportModel.Month}");
+        if (Report is not null)
+        {
+            ReportResult = JsonSerializer.Serialize(Report, new JsonSerializerOptions { WriteIndented = true });
+        }
+
+        if (Sessions.Length > 0)
+        {
+            LookupModel.SessionId = Sessions[0].SessionId;
+            await SelectSessionAsync(Sessions[0].SessionId);
+        }
+
+        if (showToast)
+        {
+            AddToast(ToastKind.Info, "Refreshed", "Dashboard data has been reloaded.");
+        }
+
+        StateHasChanged();
+    }
+
+    private void SetTab(string tab) => ActiveTab = tab;
+
+    private async Task CreateEntryAsync()
+    {
+        try
+        {
+            var response = await Http.PostAsJsonAsync("api/sessions/entry", new
+            {
+                vehiclePlate = EntryModel.VehiclePlate,
+                userId = string.IsNullOrWhiteSpace(EntryModel.UserId) ? null : EntryModel.UserId,
+                isContractUser = EntryModel.IsContractUser,
+                preferCoveredSpace = EntryModel.PreferCoveredSpace,
+                entryTimeUtc = ParseUtc(EntryModel.EntryTimeUtcText)
+            });
+
+            EntryResult = await ReadResponseAsync(response);
+            if (response.IsSuccessStatusCode)
+            {
+                var created = await response.Content.ReadFromJsonAsync<CreateEntryResponse>();
+                if (created is not null)
+                {
+                    PaymentModel.SessionId = created.SessionId;
+                    ExitModel.SessionId = created.SessionId;
+                    LookupModel.SessionId = created.SessionId;
+                }
+
+                await RefreshAllAsync();
+                if (!string.IsNullOrWhiteSpace(LookupModel.SessionId))
+                {
+                    await SelectSessionAsync(LookupModel.SessionId);
+                }
+
+                AddToast(ToastKind.Success, "Entry created", $"Session {ShortGuid(created?.SessionId ?? string.Empty)} is active.");
+            }
+            else
+            {
+                AddToast(ToastKind.Error, "Entry failed", EntryResult);
+            }
+        }
+        catch (Exception ex)
+        {
+            EntryResult = ex.Message;
+            AddToast(ToastKind.Error, "Entry failed", ex.Message);
+        }
+    }
+
+    private async Task RegisterPaymentAsync()
+    {
+        try
+        {
+            var response = await Http.PostAsJsonAsync($"api/sessions/{PaymentModel.SessionId}/payment", new
+            {
+                paymentChannel = PaymentModel.PaymentChannel,
+                paidAtUtc = ParseUtc(PaymentModel.PaidAtUtcText)
+            });
+
+            PaymentResult = await ReadResponseAsync(response);
+            await RefreshAllAsync();
+            if (!string.IsNullOrWhiteSpace(PaymentModel.SessionId))
+            {
+                await SelectSessionAsync(PaymentModel.SessionId);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                AddToast(ToastKind.Success, "Payment recorded", "The session payment was saved successfully.");
+            }
+            else
+            {
+                AddToast(ToastKind.Error, "Payment failed", PaymentResult);
+            }
+        }
+        catch (Exception ex)
+        {
+            PaymentResult = ex.Message;
+            AddToast(ToastKind.Error, "Payment failed", ex.Message);
+        }
+    }
+
+    private async Task ValidateExitAsync()
+    {
+        try
+        {
+            var response = await Http.PostAsync($"api/sessions/{ExitModel.SessionId}/exit", null);
+            PaymentResult = await ReadResponseAsync(response);
+            await RefreshAllAsync();
+            if (!string.IsNullOrWhiteSpace(ExitModel.SessionId))
+            {
+                await SelectSessionAsync(ExitModel.SessionId);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                AddToast(ToastKind.Success, "Exit validated", "The gate can open for this session.");
+            }
+            else
+            {
+                AddToast(ToastKind.Warning, "Exit blocked", PaymentResult);
+            }
+        }
+        catch (Exception ex)
+        {
+            PaymentResult = ex.Message;
+            AddToast(ToastKind.Error, "Exit failed", ex.Message);
+        }
+    }
+
+    private async Task AddWeatherIntervalAsync()
+    {
+        try
+        {
+            var response = await Http.PostAsJsonAsync("api/weather/interval", new
+            {
+                startUtc = ParseUtc(WeatherModel.StartUtcText),
+                endUtc = ParseUtc(WeatherModel.EndUtcText),
+                isRainy = WeatherModel.IsRainy
+            });
+
+            WeatherResult = await ReadResponseAsync(response);
+            await RefreshAllAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                AddToast(ToastKind.Success, "Weather saved", "The rainy interval was added.");
+            }
+            else
+            {
+                AddToast(ToastKind.Error, "Weather failed", WeatherResult);
+            }
+        }
+        catch (Exception ex)
+        {
+            WeatherResult = ex.Message;
+            AddToast(ToastKind.Error, "Weather failed", ex.Message);
+        }
+    }
+
+    private async Task LoadReportAsync()
+    {
+        try
+        {
+            Report = await Http.GetFromJsonAsync<MonthlyReportResponse>($"api/reports/monthly?year={ReportModel.Year}&month={ReportModel.Month}");
+            ReportResult = Report is null
+                ? "No report available."
+                : JsonSerializer.Serialize(Report, new JsonSerializerOptions { WriteIndented = true });
+            await RefreshSummaryOnlyAsync();
+
+            AddToast(ToastKind.Info, "Report loaded", $"Monthly report for {ReportModel.Year}-{ReportModel.Month:00} is ready.");
+        }
+        catch (Exception ex)
+        {
+            ReportResult = ex.Message;
+            AddToast(ToastKind.Error, "Report failed", ex.Message);
+        }
+    }
+
+    private async Task LookupSessionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(LookupModel.SessionId))
+        {
+            SessionResult = "Enter a session id.";
+            return;
+        }
+
+        await SelectSessionAsync(LookupModel.SessionId);
+    }
+
+    private async Task SelectSessionAsync(string sessionId)
+    {
+        try
+        {
+            var session = await Http.GetFromJsonAsync<object>($"api/sessions/{sessionId}");
+            SessionResult = session is null
+                ? "Session not found."
+                : JsonSerializer.Serialize(session, new JsonSerializerOptions { WriteIndented = true });
+
+            AddToast(ToastKind.Info, "Session loaded", $"Session {ShortGuid(sessionId)} is displayed.");
+        }
+        catch (Exception ex)
+        {
+            SessionResult = ex.Message;
+            AddToast(ToastKind.Error, "Session lookup failed", ex.Message);
+        }
+    }
+
+    private async Task RefreshSummaryOnlyAsync()
+    {
+        Inventory = await Http.GetFromJsonAsync<InventoryResponse>("api/inventory");
+        Sessions = await Http.GetFromJsonAsync<SessionSummaryResponse[]>("api/sessions?take=20") ?? [];
+    }
+
+    private async Task RunRefreshLoopAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(AutoRefreshInterval);
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        await RefreshAllAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        AddToast(ToastKind.Error, "Auto-refresh failed", ex.Message);
+                    }
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void AddToast(ToastKind kind, string title, string message)
+    {
+        Toasts.Add(new ToastMessage(Guid.NewGuid(), kind, title, message));
+        StateHasChanged();
+    }
+
+    private void RemoveToast(Guid toastId)
+    {
+        var index = Toasts.FindIndex(toast => toast.Id == toastId);
+        if (index >= 0)
+        {
+            Toasts.RemoveAt(index);
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        RefreshCancellation?.Cancel();
+        RefreshCancellation?.Dispose();
+    }
+
+    private static DateTime ParseUtc(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return DateTime.UtcNow;
+        }
+
+        var parsed = DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal);
+        return DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
+    }
+
+    private static async Task<string> ReadResponseAsync(HttpResponseMessage response)
+    {
+        var text = await response.Content.ReadAsStringAsync();
+        return response.IsSuccessStatusCode ? text : string.IsNullOrWhiteSpace(text) ? response.ReasonPhrase ?? "Request failed" : text;
+    }
+
+    private static string Money(decimal value) => string.Format(CultureInfo.InvariantCulture, "${0:0.00}", value);
+
+    private static string ShortGuid(string value) => value.Length <= 8 ? value : $"{value[..8]}…";
+
+    private static string FormatDate(DateTime? value) => value is null ? "—" : value.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
+
+    private sealed class EntryFormModel
+    {
+        [Required]
+        public string VehiclePlate { get; set; } = "DEMO-9001";
+
+        public string? UserId { get; set; } = "demo-user";
+
+        public bool IsContractUser { get; set; }
+
+        public bool PreferCoveredSpace { get; set; } = true;
+
+        [Required]
+        public string EntryTimeUtcText { get; set; } = DateTime.UtcNow.ToString(DateFormat);
+    }
+
+    private sealed class PaymentFormModel
+    {
+        [Required]
+        public string SessionId { get; set; } = string.Empty;
+
+        [Required]
+        public string PaymentChannel { get; set; } = "FLOOR_MACHINE";
+
+        [Required]
+        public string PaidAtUtcText { get; set; } = DateTime.UtcNow.ToString(DateFormat);
+    }
+
+    private sealed class ExitFormModel
+    {
+        [Required]
+        public string SessionId { get; set; } = string.Empty;
+    }
+
+    private sealed class WeatherFormModel
+    {
+        [Required]
+        public string StartUtcText { get; set; } = DateTime.UtcNow.ToString(DateFormat);
+
+        [Required]
+        public string EndUtcText { get; set; } = DateTime.UtcNow.AddHours(1).ToString(DateFormat);
+
+        public bool IsRainy { get; set; } = true;
+    }
+
+    private sealed class ReportFormModel
+    {
+        public int Year { get; set; } = DateTime.UtcNow.Year;
+
+        public int Month { get; set; } = DateTime.UtcNow.Month;
+    }
+
+    private sealed class SessionLookupModel
+    {
+        [Required]
+        public string SessionId { get; set; } = string.Empty;
+    }
+
+    private sealed class InventoryResponse
+    {
+        public int TotalSpaces { get; set; }
+
+        public int FreeSpaces { get; set; }
+
+        public int CoveredFree { get; set; }
+
+        public int UncoveredFree { get; set; }
+
+        public FloorSummary[] ByFloor { get; set; } = [];
+    }
+
+    private sealed class FloorSummary
+    {
+        public int Floor { get; set; }
+
+        public int Total { get; set; }
+
+        public int Free { get; set; }
+
+        public int CoveredFree { get; set; }
+
+        public int UncoveredFree { get; set; }
+    }
+
+    private sealed class SessionSummaryResponse
+    {
+        public string SessionId { get; set; } = string.Empty;
+
+        public string VehiclePlate { get; set; } = string.Empty;
+
+        public string? UserId { get; set; }
+
+        public bool IsContractUser { get; set; }
+
+        public string SpaceId { get; set; } = string.Empty;
+
+        public int Floor { get; set; }
+
+        public string SpaceType { get; set; } = string.Empty;
+
+        public DateTime EntryTimeUtc { get; set; }
+
+        public DateTime? ExitTimeUtc { get; set; }
+
+        public DateTime? PaidAtUtc { get; set; }
+
+        public DateTime? PaidUntilUtc { get; set; }
+
+        public decimal AmountPaid { get; set; }
+
+        public string Status { get; set; } = string.Empty;
+    }
+
+    private sealed class MonthlyReportResponse
+    {
+        public int Year { get; set; }
+
+        public int Month { get; set; }
+
+        public decimal GrossRevenue { get; set; }
+
+        public decimal TotalRevenue { get; set; }
+
+        public int TotalPayments { get; set; }
+
+        public int DiscountedPayments { get; set; }
+
+        public decimal PromotionDiscountGiven { get; set; }
+
+        public decimal AverageOccupancyRatio { get; set; }
+    }
+
+    private sealed class CreateEntryResponse
+    {
+        public string SessionId { get; set; } = string.Empty;
+    }
+}

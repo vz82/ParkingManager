@@ -1,0 +1,16 @@
+<div class="metric-card">
+    <span>@Title</span>
+    <strong>@Value</strong>
+    <small>@Description</small>
+</div>
+
+@code {
+    [Parameter]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Value { get; set; } = "-";
+
+    [Parameter]
+    public string Description { get; set; } = string.Empty;
+}

@@ -1,169 +1,123 @@
 # ParkingManager
 
-## Request analysis (key points)
+ParkingManager is an ASP.NET Core application for parking operations with:
 
-### Core system parts
-- **Access control**: entry/exit gates, ticket/contract identification, user identity assurance.
-- **Parking inventory**: total free spaces (high priority) and free spaces per floor (preferred), split by covered/uncovered.
-- **Billing engine (most critical)**: time-based charging, payment-machine flow, contract billing, 10-minute exit grace period.
-- **Weather/rainy promotion**: for uncovered spaces, discount is evaluated at payment time and applied when at least 33% of recorded parking time was rainy.
-- **Reporting/analytics**: monthly business insights (revenue, occupancy, promotion impact, profitability).
+- Blazor dashboard UI
+- Minimal API backend
+- PostgreSQL persistence via EF Core
+- Billing, rainy discount logic, and monthly reporting
 
-### Key processes
-1. **Vehicle entry**: identify user (ticket/card/contract), assign eligible space, start parking session.
-2. **Parking session tracking**: occupancy and weather exposure timelines are recorded.
-3. **Payment before exit**: user pays at floor payment machine or according to pre-signed contract rules.
-4. **Exit validation**: gate allows exit only if paid and within 10 minutes; otherwise additional charge is required.
-5. **Monthly reporting**: aggregate revenue, occupancy, rainy promotion usage/profitability.
+## Current status
 
-### Potential problem areas
-- Payment correctness (highest risk if wrong).
-- Race conditions between payment timestamp and gate exit timestamp (for example, simultaneous events may wrongly pass or fail grace-period checks).
-- Weather attribution accuracy for the defined rule: at least 33% of parking time during rain (data source reliability and weather transition timing directly affect billing).
-- Incorrect inventory counts under concurrent entry/exit.
-- Fraud/identity misuse without strong authentication.
+- App project target: .NET 8 (`src/ParkingManager.Api`)
+- Test project target: .NET 10 (`tests/ParkingManager.Api.Tests`)
+- Persistence: PostgreSQL (`parking_manager_dev`)
+- Dashboard duplication issue fixed by removing duplicated router markup in `src/ParkingManager.Api/Components/Routes.razor`
+- HTTPS configured and working on port `5000`
 
-## Conceptual architecture
+## Implemented features
 
-### Big-picture component diagram
-```mermaid
-flowchart LR
-    U[Driver / Contract User] --> K[Entry/Exit Kiosk + Gate]
-    U --> P[Payment Machine]
-    K --> A[Access Control Service]
-    P --> B[Billing Service]
-    A --> S[Parking Session Service]
-    S --> I[Inventory Service]
-    B --> S
-    B --> R[Pricing/Promotion Service]
-    R --> W[Weather Service]
-    S --> D[(Operational DB)]
-    I --> D
-    B --> D
-    D --> M[Monthly Reporting Service]
-    M --> O[Owner Dashboard]
+- Vehicle entry and automatic space assignment
+- Inventory totals and per-floor availability (covered/uncovered)
+- Time-based billing
+- Rain promotion for uncovered spaces (50% discount when rainy exposure is at least 33% at payment time)
+- Payment registration and 10-minute grace period for exit
+- Exit validation with additional amount when grace period is exceeded
+- Monthly report with revenue/discount/occupancy metrics
+
+## Tech stack
+
+- ASP.NET Core minimal APIs + Blazor Server components
+- EF Core 8 + Npgsql provider
+- PostgreSQL
+- Swagger / OpenAPI
+- xUnit tests
+
+## Prerequisites
+
+1. .NET SDK 8+ installed
+2. PostgreSQL running locally on port `5432`
+3. Database credentials matching `src/ParkingManager.Api/appsettings.json`
+
+Current connection string:
+
+```json
+Host=localhost;Port=5432;Database=parking_manager_dev;Username=postgres;Password=postgres
 ```
 
-### Big-picture data model
-```mermaid
-erDiagram
-    USER ||--o{ CONTRACT : owns
-    USER ||--o{ PARKING_SESSION : starts
-    FLOOR ||--o{ PARKING_SPACE : contains
-    PARKING_SPACE ||--o{ PARKING_SESSION : used_in
-    PARKING_SESSION ||--o{ PAYMENT : paid_by
-    PARKING_SESSION ||--o{ WEATHER_EXPOSURE : has
-    PARKING_SESSION ||--o{ EXIT_EVENT : ends_with
+## Quick Start
+
+Copy/paste these commands from repository root.
+
+Start PostgreSQL (Docker):
+
+```powershell
+docker run --name parkingmanager-postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=parking_manager_dev -p 5432:5432 -d postgres:16
 ```
 
-## Key process pseudocode (billing + exit)
+If the container already exists, start it again:
 
-```text
-function payForSession(sessionId, paymentChannel, now):
-    session = loadSession(sessionId)
-    assert session.status == "ACTIVE"
-    RAINY_DISCOUNT_THRESHOLD = 0.33
-
-    parkedMinutes = minutesBetween(session.entryTime, now)
-    baseAmount = priceEngine.calculateBase(session.spaceType, parkedMinutes)
-
-    rainyMinutes = weatherExposureMinutes(sessionId, rain=true)
-    rainyRatio = 0
-    if parkedMinutes > 0:
-        rainyRatio = rainyMinutes / parkedMinutes
-
-    if session.spaceType == "UNCOVERED" and parkedMinutes > 0 and rainyRatio >= RAINY_DISCOUNT_THRESHOLD:
-        amount = baseAmount * 0.5
-    else:
-        amount = baseAmount
-
-    recordPayment(sessionId, amount, paymentChannel, paidAt=now)
-    session.paidUntil = addMinutes(now, 10)
-    session.status = "PAID_WAITING_EXIT"
-    save(session)
-
-function validateExit(sessionId, now):
-    session = loadSession(sessionId)
-    assert session.status in {"ACTIVE", "PAID_WAITING_EXIT"}
-
-    if session.status == "PAID_WAITING_EXIT" and now <= session.paidUntil:
-        closeSession(sessionId, exitTime=now)
-        freeSpace(session.spaceId)
-        openGate()
-        return
-
-    additionalAmount = recalculateWithExtraTime(session, now)
-    denyExit("Additional payment required: " + additionalAmount)
+```powershell
+docker start parkingmanager-postgres
 ```
 
-Rainy-threshold note: rainy ratio is guarded by `parkedMinutes > 0`, and the discount condition also checks `parkedMinutes > 0`; for `parkedMinutes <= 0` the rainy ratio remains `0` and no rainy discount is applied.
+Run the application:
 
-## Priority and scope notes
-- **Never compromise**: charging logic and payment auditability.
-- **Very important**: accurate total free-space count.
-- **Secondary but included**: per-floor free-space count and rainy promotion analytics.
-- **Constraint**: uncovered spaces must remain <= 15% of total garage capacity.
-
-## Generated .NET application
-
-The repository now includes a runnable ASP.NET Core Web API implementation under `src/ParkingManager.Api` using PostgreSQL persistence via EF Core.
-
-### What is implemented
-- Vehicle entry with space assignment (`covered` preferred or fallback to any free space).
-- Real-time inventory totals and per-floor free-space counts (covered/uncovered split).
-- Billing with hourly pricing, payment recording, and 10-minute grace period for exit.
-- Rainy promotion for uncovered spaces: 50% discount when rainy exposure is at least 33% of the parking time at payment moment.
-- Exit validation with additional-charge calculation after grace period expiration.
-- Monthly report endpoint with revenue, occupancy ratio, and promotion impact.
-- Constraint enforcement: uncovered spaces are capped at 15% of lot capacity.
-- PostgreSQL persistence with startup seeding for configured floors/spaces.
-- EF Core migrations (initial migration included) with startup auto-migrate.
-- Unit tests for rainy-threshold billing and grace-period exit behavior.
-- End-to-end PowerShell demo flow script.
-
-### Run
-
-1. Start PostgreSQL from repository root:
-
-```bash
-docker compose up -d
-```
-
-2. (Optional) Update the connection string in `src/ParkingManager.Api/appsettings.json` if needed.
-3. Start the API from repository root (migrations run automatically at startup):
-
-```bash
+```powershell
 dotnet run --project src/ParkingManager.Api/ParkingManager.Api.csproj
 ```
 
-Default connection string:
+Open:
 
-```text
-Host=localhost;Port=5432;Database=parking_manager;Username=postgres;Password=postgres
+- Dashboard: `https://localhost:5000/`
+- Swagger: `https://localhost:5000/swagger`
+
+## Quick Start (No Docker, Windows PostgreSQL Service)
+
+Use this path if PostgreSQL is installed directly on Windows.
+
+Start PostgreSQL service (service name may vary):
+
+```powershell
+Get-Service *postgres* | Select-Object Name, Status
+Start-Service -Name postgresql-x64-16
 ```
 
-### EF migrations
+Create the application database (run once):
 
-Create a new migration:
-
-```bash
-dotnet ef migrations add <MigrationName> --project src/ParkingManager.Api --startup-project src/ParkingManager.Api
+```powershell
+psql -U postgres -h localhost -p 5432 -c "CREATE DATABASE parking_manager_dev;"
 ```
 
-Apply migrations manually:
+Run the application:
 
-```bash
-dotnet ef database update --project src/ParkingManager.Api --startup-project src/ParkingManager.Api
+```powershell
+dotnet run --project src/ParkingManager.Api/ParkingManager.Api.csproj
 ```
 
-Swagger UI will be available at:
+Open:
 
-```text
-http://localhost:5000/swagger
+- Dashboard: `https://localhost:5000/`
+- Swagger: `https://localhost:5000/swagger`
+
+## Run the app
+
+From repository root:
+
+```powershell
+dotnet run --project src/ParkingManager.Api/ParkingManager.Api.csproj
 ```
 
-### Main endpoints
+App URLs:
+
+- Dashboard/UI: `https://localhost:5000/`
+- Swagger UI: `https://localhost:5000/swagger`
+- HTTP endpoint (non-TLS): `http://localhost:5001/`
+
+## API endpoints
+
 - `GET /api/inventory`
+- `GET /api/sessions?take=12`
 - `POST /api/sessions/entry`
 - `GET /api/sessions/{sessionId}`
 - `POST /api/sessions/{sessionId}/payment`
@@ -171,30 +125,28 @@ http://localhost:5000/swagger
 - `POST /api/weather/interval`
 - `GET /api/reports/monthly?year=2026&month=6`
 
-### Sample flow
+## Run tests
 
-1. Register a rainy interval.
-2. Create an entry session.
-3. Pay for the session.
-4. Validate exit.
-5. Review monthly report.
-
-### Run tests
-
-```bash
+```powershell
 dotnet test tests/ParkingManager.Api.Tests/ParkingManager.Api.Tests.csproj
 ```
 
-### Demo script
+Included tests cover:
 
-Start the API in one terminal, then run in another terminal:
+- rainy discount application
+- grace-period exit validation
+- monthly report revenue/discount assertions
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/demo-flow.ps1
-```
+## Troubleshooting notes
 
-Optional base URL:
+### Port already in use (`5000` or `5001`)
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/demo-flow.ps1 -BaseUrl http://localhost:5000
-```
+Stop old process and rerun `dotnet run`.
+
+### SSL error on `https://localhost:5000`
+
+The app expects HTTPS on `5000`. If browser cert issues appear, trust/regenerate dev certs.
+
+### Blazor dashboard renders duplicated sections
+
+Ensure `src/ParkingManager.Api/Components/Routes.razor` contains only a single `<Router ...>` block.
