@@ -6,13 +6,13 @@
 - **Access control**: entry/exit gates, ticket/contract identification, user identity assurance.
 - **Parking inventory**: total free spaces (high priority) and free spaces per floor (preferred), split by covered/uncovered.
 - **Billing engine (most critical)**: time-based charging, payment-machine flow, contract billing, 10-minute exit grace period.
-- **Weather/rainy promotion**: uncovered spaces discounted to 50% of covered price during rain, applied when at least 33% of parked time is rainy.
+- **Weather/rainy promotion**: uncovered spaces discounted to 50% of covered price during rain, applied when at least 33% of parking time is rainy.
 - **Reporting/analytics**: monthly business insights (revenue, occupancy, promotion impact, profitability).
 
 ### Key processes
 1. **Vehicle entry**: identify user (ticket/card/contract), assign eligible space, start parking session.
 2. **Parking session tracking**: occupancy and weather exposure timelines are recorded.
-3. **Payment before exit**: user pays only at floor payment machine or via pre-signed contract rules.
+3. **Payment before exit**: user pays at floor payment machine or according to pre-signed contract rules.
 4. **Exit validation**: gate allows exit only if paid and within 10 minutes; otherwise additional charge is required.
 5. **Monthly reporting**: aggregate revenue, occupancy, rainy promotion usage/profitability.
 
@@ -67,8 +67,8 @@ function payForSession(sessionId, paymentChannel, now):
     baseAmount = priceEngine.calculateBase(session.spaceType, parkedMinutes)
 
     rainyMinutes = weatherExposureMinutes(sessionId, rain=true)
-    parkedMinutesDenominator = max(parkedMinutes, 1)
-    if session.spaceType == "UNCOVERED" and rainyMinutes / parkedMinutesDenominator >= 0.33:
+    safeParkedMinutes = max(parkedMinutes, 1)
+    if session.spaceType == "UNCOVERED" and rainyMinutes / safeParkedMinutes >= 0.33:
         amount = baseAmount * 0.5
     else:
         amount = baseAmount
@@ -92,7 +92,7 @@ function validateExit(sessionId, now):
     denyExit("Additional payment required: " + additionalAmount)
 ```
 
-Rainy-threshold note: `rainyMinutes / parkedMinutesDenominator` is calculated using completed parked minutes up to the payment timestamp (inclusive boundary), with `parkedMinutesDenominator >= 1` to safely handle immediate payment events.
+Rainy-threshold note: `rainyMinutes / max(parkedMinutes, 1)` is calculated using completed parked minutes up to the payment timestamp (inclusive boundary), so immediate payment events remain safe.
 
 ## Priority and scope notes
 - **Never compromise**: charging logic and payment auditability.
