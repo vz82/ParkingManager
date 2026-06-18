@@ -6,7 +6,7 @@
 - **Access control**: entry/exit gates, ticket/contract identification, user identity assurance.
 - **Parking inventory**: total free spaces (high priority) and free spaces per floor (preferred), split by covered/uncovered.
 - **Billing engine (most critical)**: time-based charging, payment-machine flow, contract billing, 10-minute exit grace period.
-- **Weather/rainy promotion**: uncovered spaces discounted to 50% of covered price during rain, applied when at least 33% of parking time is rainy.
+- **Weather/rainy promotion**: for uncovered spaces, discount is evaluated at payment time and applied when at least 33% of recorded parking time was rainy.
 - **Reporting/analytics**: monthly business insights (revenue, occupancy, promotion impact, profitability).
 
 ### Key processes
@@ -68,7 +68,9 @@ function payForSession(sessionId, paymentChannel, now):
     baseAmount = priceEngine.calculateBase(session.spaceType, parkedMinutes)
 
     rainyMinutes = weatherExposureMinutes(sessionId, rain=true)
-    if session.spaceType == "UNCOVERED" and rainyMinutes / max(parkedMinutes, 1) >= RAINY_DISCOUNT_THRESHOLD:
+    if parkedMinutes <= 0:
+        amount = baseAmount
+    else if session.spaceType == "UNCOVERED" and rainyMinutes / parkedMinutes >= RAINY_DISCOUNT_THRESHOLD:
         amount = baseAmount * 0.5
     else:
         amount = baseAmount
@@ -92,7 +94,7 @@ function validateExit(sessionId, now):
     denyExit("Additional payment required: " + additionalAmount)
 ```
 
-Rainy-threshold note: `rainyMinutes / max(parkedMinutes, 1)` uses completed parked minutes from entry until the payment timestamp, with a minimum denominator of 1 for safety.
+Rainy-threshold note: discount eligibility is computed only when `parkedMinutes > 0`; for zero-minute edge cases no rainy discount is applied.
 
 ## Priority and scope notes
 - **Never compromise**: charging logic and payment auditability.
