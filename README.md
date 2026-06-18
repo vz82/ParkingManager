@@ -18,8 +18,8 @@
 
 ### Potential problem areas
 - Payment correctness (highest risk if wrong).
-- Race conditions between payment timestamp and gate exit timestamp.
-- Weather attribution accuracy for the defined rule: at least 33% of parking time during rain.
+- Race conditions between payment timestamp and gate exit timestamp (for example, simultaneous events may wrongly pass or fail grace-period checks).
+- Weather attribution accuracy for the defined rule: at least 33% of parking time during rain (data source reliability and weather transition timing directly affect billing).
 - Incorrect inventory counts under concurrent entry/exit.
 - Fraud/identity misuse without strong authentication.
 
@@ -68,13 +68,14 @@ function payForSession(sessionId, paymentChannel, now):
     baseAmount = priceEngine.calculateBase(session.spaceType, parkedMinutes)
 
     rainyMinutes = weatherExposureMinutes(sessionId, rain=true)
-    if parkedMinutes <= 0:
-        amount = baseAmount
+    rainyRatio = 0
+    if parkedMinutes > 0:
+        rainyRatio = rainyMinutes / parkedMinutes
+
+    if session.spaceType == "UNCOVERED" and parkedMinutes > 0 and rainyRatio >= RAINY_DISCOUNT_THRESHOLD:
+        amount = baseAmount * 0.5
     else:
-        if session.spaceType == "UNCOVERED" and rainyMinutes / parkedMinutes >= RAINY_DISCOUNT_THRESHOLD:
-            amount = baseAmount * 0.5
-        else:
-            amount = baseAmount
+        amount = baseAmount
 
     recordPayment(sessionId, amount, paymentChannel, paidAt=now)
     session.paidUntil = addMinutes(now, 10)
@@ -95,7 +96,7 @@ function validateExit(sessionId, now):
     denyExit("Additional payment required: " + additionalAmount)
 ```
 
-Rainy-threshold note: discount eligibility is computed only when `parkedMinutes > 0`; for zero-minute edge cases no rainy discount is applied.
+Rainy-threshold note: discount eligibility is computed only when `parkedMinutes > 0`; for `parkedMinutes <= 0` the rainy ratio remains `0` and no rainy discount is applied.
 
 ## Priority and scope notes
 - **Never compromise**: charging logic and payment auditability.
