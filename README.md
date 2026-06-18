@@ -19,7 +19,7 @@
 ### Potential problem areas
 - Payment correctness (highest risk if wrong).
 - Race conditions between payment timestamp and gate exit timestamp.
-- Weather attribution accuracy for the 33% rainy-time rule.
+- Weather attribution accuracy for the defined rule: at least 33% of parking time in rain.
 - Incorrect inventory counts under concurrent entry/exit.
 - Fraud/identity misuse without strong authentication.
 
@@ -92,7 +92,7 @@ function validateExit(sessionId, now):
     denyExit("Additional payment required: " + additionalAmount)
 ```
 
-Rainy-threshold note: `rainyMinutes / max(parkedMinutes, 1)` is calculated using completed parked minutes up to the payment timestamp (inclusive boundary), so immediate payment events remain safe.
+Rainy-threshold note: `rainyMinutes / max(parkedMinutes, 1)` uses parked minutes up to and including the minute containing the payment timestamp, so immediate payment events remain safe.
 
 ## Priority and scope notes
 - **Never compromise**: charging logic and payment auditability.
