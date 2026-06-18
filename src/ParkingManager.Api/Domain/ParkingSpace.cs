@@ -2,11 +2,11 @@ namespace ParkingManager.Api.Domain;
 
 public sealed class ParkingSpace
 {
-    public required string Id { get; init; }
+    public string Id { get; set; } = string.Empty;
 
-    public required int Floor { get; init; }
+    public int Floor { get; set; }
 
-    public required SpaceType Type { get; init; }
+    public SpaceType Type { get; set; }
 
     public bool IsOccupied { get; set; }
 }

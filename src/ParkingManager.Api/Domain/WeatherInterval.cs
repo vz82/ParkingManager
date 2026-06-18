@@ -2,11 +2,11 @@ namespace ParkingManager.Api.Domain;
 
 public sealed class WeatherInterval
 {
-    public required Guid Id { get; init; }
+    public Guid Id { get; set; }
 
-    public required DateTime StartUtc { get; init; }
+    public DateTime StartUtc { get; set; }
 
-    public required DateTime EndUtc { get; init; }
+    public DateTime EndUtc { get; set; }
 
-    public bool IsRainy { get; init; }
+    public bool IsRainy { get; set; }
 }

@@ -2,17 +2,17 @@ namespace ParkingManager.Api.Domain;
 
 public sealed class PaymentRecord
 {
-    public required Guid Id { get; init; }
+    public Guid Id { get; set; }
 
-    public required Guid SessionId { get; init; }
+    public Guid SessionId { get; set; }
 
-    public required decimal BaseAmount { get; init; }
+    public decimal BaseAmount { get; set; }
 
-    public required decimal DiscountAmount { get; init; }
+    public decimal DiscountAmount { get; set; }
 
-    public required decimal ChargedAmount { get; init; }
+    public decimal ChargedAmount { get; set; }
 
-    public required string PaymentChannel { get; init; }
+    public string PaymentChannel { get; set; } = string.Empty;
 
-    public required DateTime PaidAtUtc { get; init; }
+    public DateTime PaidAtUtc { get; set; }
 }

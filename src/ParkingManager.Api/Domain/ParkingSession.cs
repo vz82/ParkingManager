@@ -2,21 +2,21 @@ namespace ParkingManager.Api.Domain;
 
 public sealed class ParkingSession
 {
-    public required Guid Id { get; init; }
+    public Guid Id { get; set; }
 
-    public required string VehiclePlate { get; init; }
+    public string VehiclePlate { get; set; } = string.Empty;
 
-    public string? UserId { get; init; }
+    public string? UserId { get; set; }
 
-    public bool IsContractUser { get; init; }
+    public bool IsContractUser { get; set; }
 
-    public required string SpaceId { get; init; }
+    public string SpaceId { get; set; } = string.Empty;
 
-    public required int Floor { get; init; }
+    public int Floor { get; set; }
 
-    public required SpaceType SpaceType { get; init; }
+    public SpaceType SpaceType { get; set; }
 
-    public required DateTime EntryTimeUtc { get; init; }
+    public DateTime EntryTimeUtc { get; set; }
 
     public DateTime? ExitTimeUtc { get; set; }
 

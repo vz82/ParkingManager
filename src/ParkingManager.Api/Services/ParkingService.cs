@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using ParkingManager.Api.Contracts;
 using ParkingManager.Api.Domain;
 using ParkingManager.Api.Reports;
@@ -6,23 +7,27 @@ namespace ParkingManager.Api.Services;
 
 public sealed class ParkingService
 {
-    private readonly ParkingLotState _state;
+    private static readonly object SyncRoot = new();
+
+    private readonly ParkingDbContext _db;
     private readonly ParkingManagerOptions _options;
 
-    public ParkingService(ParkingLotState state, ParkingManagerOptions options)
+    public ParkingService(ParkingDbContext db, ParkingManagerOptions options)
     {
-        _state = state;
+        _db = db;
         _options = options;
     }
 
     public object GetInventory()
     {
-        lock (_state.SyncRoot)
+        lock (SyncRoot)
         {
-            var total = _state.Spaces.Count;
-            var free = _state.Spaces.Count(s => !s.IsOccupied);
+            var spaces = _db.ParkingSpaces.AsNoTracking().ToList();
 
-            var byFloor = _state.Spaces
+            var total = spaces.Count;
+            var free = spaces.Count(s => !s.IsOccupied);
+
+            var byFloor = spaces
                 .GroupBy(s => s.Floor)
                 .OrderBy(g => g.Key)
                 .Select(g => new
@@ -39,8 +44,8 @@ public sealed class ParkingService
             {
                 TotalSpaces = total,
                 FreeSpaces = free,
-                CoveredFree = _state.Spaces.Count(s => !s.IsOccupied && s.Type == SpaceType.Covered),
-                UncoveredFree = _state.Spaces.Count(s => !s.IsOccupied && s.Type == SpaceType.Uncovered),
+                CoveredFree = spaces.Count(s => !s.IsOccupied && s.Type == SpaceType.Covered),
+                UncoveredFree = spaces.Count(s => !s.IsOccupied && s.Type == SpaceType.Uncovered),
                 ByFloor = byFloor
             };
         }
@@ -50,21 +55,21 @@ public sealed class ParkingService
     {
         var now = request.EntryTimeUtc?.ToUniversalTime() ?? DateTime.UtcNow;
 
-        lock (_state.SyncRoot)
+        lock (SyncRoot)
         {
-            if (_state.Sessions.Any(s => s.VehiclePlate == request.VehiclePlate && s.Status != SessionStatus.Closed))
+            if (_db.ParkingSessions.Any(s => s.VehiclePlate == request.VehiclePlate && s.Status != SessionStatus.Closed))
             {
                 throw new InvalidOperationException("Vehicle already has an active session.");
             }
 
             var preferredType = request.PreferCoveredSpace ? SpaceType.Covered : SpaceType.Uncovered;
-            var chosen = _state.Spaces
-                .Where(s => !s.IsOccupied)
+            var chosen = _db.ParkingSpaces
+                .Where(s => s.IsOccupied == false)
                 .OrderBy(s => s.Floor)
                 .ThenBy(s => s.Id)
                 .FirstOrDefault(s => s.Type == preferredType)
-                ?? _state.Spaces
-                    .Where(s => !s.IsOccupied)
+                ?? _db.ParkingSpaces
+                    .Where(s => s.IsOccupied == false)
                     .OrderBy(s => s.Floor)
                     .ThenBy(s => s.Id)
                     .FirstOrDefault();
@@ -89,7 +94,8 @@ public sealed class ParkingService
                 Status = SessionStatus.Active
             };
 
-            _state.Sessions.Add(session);
+            _db.ParkingSessions.Add(session);
+            _db.SaveChanges();
 
             return new
             {
@@ -110,7 +116,7 @@ public sealed class ParkingService
     {
         var paidAt = request.PaidAtUtc?.ToUniversalTime() ?? DateTime.UtcNow;
 
-        lock (_state.SyncRoot)
+        lock (SyncRoot)
         {
             var session = FindSession(sessionId);
             if (session.Status == SessionStatus.Closed)
@@ -147,7 +153,7 @@ public sealed class ParkingService
             session.PaidUntilUtc = paidAt.AddMinutes(_options.ExitGracePeriodMinutes);
             session.Status = SessionStatus.PaidWaitingExit;
 
-            _state.Payments.Add(new PaymentRecord
+            _db.PaymentRecords.Add(new PaymentRecord
             {
                 Id = Guid.NewGuid(),
                 SessionId = session.Id,
@@ -157,6 +163,7 @@ public sealed class ParkingService
                 PaymentChannel = request.PaymentChannel,
                 PaidAtUtc = paidAt
             });
+            _db.SaveChanges();
 
             return new
             {
@@ -176,7 +183,7 @@ public sealed class ParkingService
     {
         var now = atUtc?.ToUniversalTime() ?? DateTime.UtcNow;
 
-        lock (_state.SyncRoot)
+        lock (SyncRoot)
         {
             var session = FindSession(sessionId);
             if (session.Status == SessionStatus.Closed)
@@ -192,6 +199,7 @@ public sealed class ParkingService
             if (session.Status == SessionStatus.PaidWaitingExit && session.PaidUntilUtc is not null && now <= session.PaidUntilUtc.Value)
             {
                 CloseSession(session, now);
+                _db.SaveChanges();
                 return new ExitValidationResponse
                 {
                     CanExit = true,
@@ -206,6 +214,7 @@ public sealed class ParkingService
             if (additionalRequired <= 0m)
             {
                 CloseSession(session, now);
+                _db.SaveChanges();
                 return new ExitValidationResponse
                 {
                     CanExit = true,
@@ -230,7 +239,7 @@ public sealed class ParkingService
             throw new InvalidOperationException("Weather interval end must be after start.");
         }
 
-        lock (_state.SyncRoot)
+        lock (SyncRoot)
         {
             var interval = new WeatherInterval
             {
@@ -240,7 +249,8 @@ public sealed class ParkingService
                 IsRainy = request.IsRainy
             };
 
-            _state.WeatherIntervals.Add(interval);
+            _db.WeatherIntervals.Add(interval);
+            _db.SaveChanges();
 
             return new
             {
@@ -254,12 +264,12 @@ public sealed class ParkingService
 
     public MonthlyReport BuildMonthlyReport(int year, int month)
     {
-        lock (_state.SyncRoot)
+        lock (SyncRoot)
         {
             var monthStart = new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
             var monthEnd = monthStart.AddMonths(1);
 
-            var monthPayments = _state.Payments
+            var monthPayments = _db.PaymentRecords.AsNoTracking()
                 .Where(p => p.PaidAtUtc >= monthStart && p.PaidAtUtc < monthEnd)
                 .ToArray();
 
@@ -267,8 +277,10 @@ public sealed class ParkingService
             var discountedPayments = monthPayments.Count(p => p.DiscountAmount > 0m);
             var promotionDiscountGiven = monthPayments.Sum(p => p.DiscountAmount);
 
-            var capacityMinutes = _state.Spaces.Count * (monthEnd - monthStart).TotalMinutes;
-            var occupiedMinutes = _state.Sessions.Sum(s => SessionOverlapMinutes(s, monthStart, monthEnd));
+            var spacesCount = _db.ParkingSpaces.Count();
+            var sessions = _db.ParkingSessions.AsNoTracking().ToList();
+            var capacityMinutes = spacesCount * (monthEnd - monthStart).TotalMinutes;
+            var occupiedMinutes = sessions.Sum(s => SessionOverlapMinutes(s, monthStart, monthEnd));
             var avgOccupancy = capacityMinutes <= 0
                 ? 0m
                 : decimal.Round((decimal)(occupiedMinutes / capacityMinutes), 4);
@@ -288,7 +300,7 @@ public sealed class ParkingService
 
     public object GetSession(Guid sessionId)
     {
-        lock (_state.SyncRoot)
+        lock (SyncRoot)
         {
             var s = FindSession(sessionId);
             return new
@@ -312,7 +324,7 @@ public sealed class ParkingService
 
     private ParkingSession FindSession(Guid sessionId)
     {
-        return _state.Sessions.FirstOrDefault(s => s.Id == sessionId)
+        return _db.ParkingSessions.FirstOrDefault(s => s.Id == sessionId)
             ?? throw new KeyNotFoundException("Session not found.");
     }
 
@@ -321,7 +333,7 @@ public sealed class ParkingService
         session.ExitTimeUtc = exitAtUtc;
         session.Status = SessionStatus.Closed;
 
-        var space = _state.Spaces.First(s => s.Id == session.SpaceId);
+        var space = _db.ParkingSpaces.First(s => s.Id == session.SpaceId);
         space.IsOccupied = false;
     }
 
@@ -372,7 +384,7 @@ public sealed class ParkingService
             return 0m;
         }
 
-        var rainyMinutes = _state.WeatherIntervals
+        var rainyMinutes = _db.WeatherIntervals.AsNoTracking()
             .Where(w => w.IsRainy)
             .Sum(w => OverlapMinutes(session.EntryTimeUtc, atUtc, w.StartUtc, w.EndUtc));
 

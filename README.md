@@ -106,7 +106,7 @@ Rainy-threshold note: rainy ratio is guarded by `parkedMinutes > 0`, and the dis
 
 ## Generated .NET application
 
-The repository now includes a runnable ASP.NET Core Web API implementation under `src/ParkingManager.Api`.
+The repository now includes a runnable ASP.NET Core Web API implementation under `src/ParkingManager.Api` using PostgreSQL persistence via EF Core.
 
 ### What is implemented
 - Vehicle entry with space assignment (`covered` preferred or fallback to any free space).
@@ -116,13 +116,44 @@ The repository now includes a runnable ASP.NET Core Web API implementation under
 - Exit validation with additional-charge calculation after grace period expiration.
 - Monthly report endpoint with revenue, occupancy ratio, and promotion impact.
 - Constraint enforcement: uncovered spaces are capped at 15% of lot capacity.
+- PostgreSQL persistence with startup seeding for configured floors/spaces.
+- EF Core migrations (initial migration included) with startup auto-migrate.
+- Unit tests for rainy-threshold billing and grace-period exit behavior.
+- End-to-end PowerShell demo flow script.
 
 ### Run
 
-From repository root:
+1. Start PostgreSQL from repository root:
+
+```bash
+docker compose up -d
+```
+
+2. (Optional) Update the connection string in `src/ParkingManager.Api/appsettings.json` if needed.
+3. Start the API from repository root (migrations run automatically at startup):
 
 ```bash
 dotnet run --project src/ParkingManager.Api/ParkingManager.Api.csproj
+```
+
+Default connection string:
+
+```text
+Host=localhost;Port=5432;Database=parking_manager;Username=postgres;Password=postgres
+```
+
+### EF migrations
+
+Create a new migration:
+
+```bash
+dotnet ef migrations add <MigrationName> --project src/ParkingManager.Api --startup-project src/ParkingManager.Api
+```
+
+Apply migrations manually:
+
+```bash
+dotnet ef database update --project src/ParkingManager.Api --startup-project src/ParkingManager.Api
 ```
 
 Swagger UI will be available at:
@@ -147,3 +178,23 @@ http://localhost:5000/swagger
 3. Pay for the session.
 4. Validate exit.
 5. Review monthly report.
+
+### Run tests
+
+```bash
+dotnet test tests/ParkingManager.Api.Tests/ParkingManager.Api.Tests.csproj
+```
+
+### Demo script
+
+Start the API in one terminal, then run in another terminal:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/demo-flow.ps1
+```
+
+Optional base URL:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/demo-flow.ps1 -BaseUrl http://localhost:5000
+```

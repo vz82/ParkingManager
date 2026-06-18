@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using ParkingManager.Api.Contracts;
 using ParkingManager.Api.Services;
 
@@ -8,10 +9,23 @@ builder.Services.AddSwaggerGen();
 
 var options = new ParkingManagerOptions();
 builder.Services.AddSingleton(options);
-builder.Services.AddSingleton(new ParkingLotState(options));
-builder.Services.AddSingleton<ParkingService>();
+
+var connectionString = builder.Configuration.GetConnectionString("ParkingManagerDb")
+    ?? throw new InvalidOperationException("Missing connection string 'ParkingManagerDb'.");
+
+builder.Services.AddDbContext<ParkingDbContext>(db => db.UseNpgsql(connectionString));
+builder.Services.AddScoped<ParkingService>();
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<ParkingDbContext>();
+    var seededOptions = scope.ServiceProvider.GetRequiredService<ParkingManagerOptions>();
+
+    db.Database.Migrate();
+    ParkingSeeder.EnsureSeeded(db, seededOptions);
+}
 
 app.UseSwagger();
 app.UseSwaggerUI();
